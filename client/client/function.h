@@ -12,3 +12,4 @@
 #pragma warning(disable:4996)
 
 IN_ADDR GetDefaultMyIP();
+void RecvThreadPoint(void*pin);

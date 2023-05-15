@@ -12,3 +12,10 @@
 #pragma warning(disable:4996)
 
 IN_ADDR GetDefaultMyIP();
+
+void AcceptLoop(SOCKET sock);//Accept Loop
+void EventLoop(SOCKET sock);
+void DoIt(void* param); //송수신 스레드 진입점
+void AcceptProc(int index);
+void ReadProc(int index);
+void CloseProc(int index);
