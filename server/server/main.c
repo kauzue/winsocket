@@ -1,111 +1,87 @@
-#include <stdio.h>
+#include "function.h"
 
-#include <stdlib.h>
+#define PORT_NUM      4523
+#define BLOG_SIZE       5
+#define MAX_MSG_LEN 256
 
-#include <WinSock2.h>
-
-
-
-void ErrorHandling(char* message);
-
-
-
-int main(int argc, char* argv[])
-
+SOCKET SetTCPServer(short pnum, int blog);//대기 소켓 설정
+void AcceptLoop(SOCKET sock);//Accept Loop
+void DoIt(void* param); //송수신 스레드 진입점
+int main()
 {
-
-    WSADATA wsaData;
-
-    SOCKET hServSock, hClntSock;
-
-    SOCKADDR_IN servAddr, clntAddr;
-
-
-
-    int szClntAddr;
-
-    char message[] = "Hello World!";
-
-    if (argc != 2)
-
+    WSADATA wsadata;
+    WSAStartup(MAKEWORD(2, 2), &wsadata);//윈속 초기화	
+    SOCKET sock = SetTCPServer(PORT_NUM, BLOG_SIZE);//대기 소켓 설정
+    if (sock == -1)
     {
-
-        printf("Usage:%s <port>\n", argv[0]);
-
-        exit(1);
-
+        perror("대기 소켓 오류");
+        WSACleanup();
+        return 0;
     }
-
-
-
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) //소켓 라이브러리 초기화
-
-        ErrorHandling("WSAStartup() error!");
-
-
-
-    hServSock = socket(PF_INET, SOCK_STREAM, 0); //소켓생성
-
-    if (hServSock == INVALID_SOCKET)
-
-        ErrorHandling("socket() error");
-
-
-
-    memset(&servAddr, 0, sizeof(servAddr));
-
-    servAddr.sin_family = AF_INET;
-
-    servAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-
-    servAddr.sin_port = htons(atoi(argv[1]));
-
-
-
-    if (bind(hServSock, (SOCKADDR*)&servAddr, sizeof(servAddr)) == SOCKET_ERROR) //소켓에 IP주소와 PORT 번호 할당
-
-        ErrorHandling("bind() error");
-
-
-
-    if (listen(hServSock, 5) == SOCKET_ERROR) //listen 함수호출을 통해서 생성한 소켓을 서버 소켓으로 완성
-
-        ErrorHandling("listen() error");
-
-
-
-    szClntAddr = sizeof(clntAddr);
-
-    hClntSock = accept(hServSock, (SOCKADDR*)&clntAddr, &szClntAddr); //클라이언트 연결요청 수락하기 위해 accept함수 호출
-
-    if (hClntSock == INVALID_SOCKET)
-
-        ErrorHandling("accept() error");
-
-
-
-    send(hClntSock, message, sizeof(message), 0); //send함수 호출을 통해서 연결된 클라이언트에 데이터를 전송
-
-    closesocket(hClntSock);
-
-    closesocket(hServSock);
-
-    WSACleanup(); //프로그램 종료 전에 초기화한 소켓 라이브러리 해제
-
+    AcceptLoop(sock);//Accept Loop
+    WSACleanup();//윈속 해제화
     return 0;
-
 }
-
-
-
-void ErrorHandling(char* message)
-
+SOCKET SetTCPServer(short pnum, int blog)
 {
-
-    fputs(message, stderr);
-
-    fputc('\n', stderr);
-
-    exit(1);
-
+    SOCKET sock;
+    sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);//소켓 생성
+    if (sock == -1) { return -1; }
+    SOCKADDR_IN servaddr = { 0 };//소켓 주소
+    servaddr.sin_family = AF_INET;
+    servaddr.sin_addr = GetDefaultMyIP();
+    servaddr.sin_port = htons(PORT_NUM);
+    int re = 0;
+    //소켓 주소와 네트워크 인터페이스 결합
+    re = bind(sock, (struct sockaddr*)&servaddr, sizeof(servaddr));
+    if (re == -1)
+    {
+        return -1;
+    }
+    re = listen(sock, blog);//백 로그 큐 설정
+    if (re == -1)
+    {
+        return -1;
+    }
+    return sock;
+}
+void AcceptLoop(SOCKET sock)
+{
+    SOCKET dosock;
+    SOCKADDR_IN cliaddr = { 0 };
+    int len = sizeof(cliaddr);
+    while (true)
+    {
+        dosock = accept(sock, (SOCKADDR*)&cliaddr, &len);//연결 수락
+        if (dosock == -1)
+        {
+            perror("Accept 실패");
+            break;
+        }
+        printf("%s:%d의 연결 요청 수락\n",
+            inet_ntoa(cliaddr.sin_addr),
+            ntohs(cliaddr.sin_port));
+        _beginthread(DoIt, 0, (void*)dosock);
+    }
+    closesocket(sock);//소켓 닫기
+}
+void DoIt(void* param)
+{
+    SOCKET dosock = (SOCKET)param;
+    SOCKADDR_IN cliaddr = { 0 };
+    int len = sizeof(cliaddr);
+    getpeername(dosock, (SOCKADDR*)&cliaddr, &len);//상대 소켓 주소 알아내기
+    char msg[MAX_MSG_LEN] = "";
+    while (recv(dosock, msg, sizeof(msg), 0) > 0)//수신
+    {
+        printf("%s:%d 로부터 recv:%s\n",
+            inet_ntoa(cliaddr.sin_addr),
+            ntohs(cliaddr.sin_port),
+            msg);
+        send(dosock, msg, sizeof(msg), 0);//송신
+    }
+    printf("%s:%d와 통신 종료\n",
+        inet_ntoa(cliaddr.sin_addr),
+        ntohs(cliaddr.sin_port));
+    closesocket(dosock);//소켓 닫기
 }
